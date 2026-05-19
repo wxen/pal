@@ -1,0 +1,13 @@
+# Pal - 角色扮演聊天服务端
+
+# Web 框架
+flask>=3.0
+
+# HTTP 请求
+requests>=2.31
+
+# 环境变量管理
+python-dotenv>=1.0
+
+# 生产部署
+gunicorn>=21.0

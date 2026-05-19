@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+*.log
+agent/*/file/memory/*.json
+agent/*/file/archive/*.json
+agent/*/wechat_session.json
+agent/*/date/
+/tmp/
