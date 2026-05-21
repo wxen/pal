@@ -42,6 +42,7 @@ class QQBot(BotAdapter):
         self._seq = 0
         self._session_id = ""
         self._running = False
+        self._engines: dict[str, object] = {}  # 按用户隔离引擎
         self._heartbeat_thread = None
 
     def start(self):
@@ -79,6 +80,22 @@ class QQBot(BotAdapter):
     @staticmethod
     def extract_text(data: dict) -> str:
         return data.get("content", "").strip()
+
+    def process_message(self, text: str, user_id: str = "") -> list[dict]:
+        """按用户隔离引擎，避免上下文混乱"""
+        if user_id not in self._engines:
+            from core.engine import PalEngine
+            import os
+            self._engines[user_id] = PalEngine(
+                session_id=f"qq_{user_id[:12]}",
+                persona=os.environ.get("PAL_PERSONA", None),
+                api_key=os.environ.get("PAL_API_KEY", None),
+                api_provider=os.environ.get("PAL_API_PROVIDER", None),
+                api_model=os.environ.get("PAL_API_MODEL", None),
+            )
+        engine = self._engines[user_id]
+        results = engine.process(text)
+        return [r for r in results if r["type"] == "send"]
 
 
 def _connect_ws(bot: QQBot):
