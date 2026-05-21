@@ -163,7 +163,12 @@ def _on_message(ws, message, bot):
 
             replies = bot.process_message(text, user_id)
             for seq, r in enumerate(replies):
-                bot.reply(channel_id, msg_id, r.get("content", ""), event_type, seq + 1)
+                content = r.get("content", "")
+                # 动作描述（括号开头）立即发送，文字按长度延迟
+                if not content.startswith("（"):
+                    delay = min(len(content) * 0.06, 3.0)  # 每字约60ms，上限3秒
+                    time.sleep(delay)
+                bot.reply(channel_id, msg_id, content, event_type, seq + 1)
     except Exception as e:
         logger.error(f"QQ msg err: {e}")
 
