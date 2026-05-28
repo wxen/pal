@@ -25,9 +25,10 @@ ACTIVE_MSG_PROMPT = """# 系统消息
 class ActiveMessenger:
     """主动消息触发器"""
 
-    def __init__(self, engine, intensity: int = 30):
+    def __init__(self, engine, intensity: int = 30, on_send=None):
         self.engine = engine
         self.intensity = min(max(intensity, 0), 100)
+        self.on_send = on_send  # callback(engine, messages) 用于投递消息
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -68,7 +69,11 @@ class ActiveMessenger:
         """尝试发送主动消息"""
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         prompt = ACTIVE_MSG_PROMPT.format(timestamp=ts)
-        # 将主动消息注入为"系统消息"触发模型思考
         results = self.engine.process(prompt)
         if results:
-            logger.info(f"Active message triggered: {len(results)} messages")
+            send_msgs = [r for r in results if r["type"] == "send"]
+            if send_msgs and self.on_send:
+                logger.info(f"Active message: {len(send_msgs)} messages")
+                self.on_send(send_msgs)
+            else:
+                logger.debug("Active message: model chose not to send")

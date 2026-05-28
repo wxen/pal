@@ -44,6 +44,10 @@ class QQBot(BotAdapter):
         self._running = False
         self._engines: dict[str, object] = {}  # 按用户隔离引擎
         self._heartbeat_thread = None
+        self._active_messenger = None
+        self._last_user = ""  # 最近活跃用户，用于主动消息
+        self._last_channel = ""
+        self._last_event_type = ""
 
     def start(self):
         logger.info("QQ Bot WebSocket 连接中...")
@@ -140,6 +144,29 @@ def _on_open(ws, bot):
     ws.send(json.dumps(auth))
     logger.info("QQ WS connected, auth sent")
 
+    # 启动主动消息系统
+    if not bot._active_messenger and os.environ.get("PAL_ACTIVE_INTENSITY"):
+        intensity = int(os.environ.get("PAL_ACTIVE_INTENSITY", "0"))
+        if intensity > 0:
+            from core.active import ActiveMessenger
+            from core.engine import PalEngine
+            active_engine = PalEngine(
+                session_id="qq_active",
+                persona=os.environ.get("PAL_PERSONA", None),
+                api_key=os.environ.get("PAL_API_KEY", None),
+                api_model=os.environ.get("PAL_API_MODEL", None),
+            )
+            def send_active(messages):
+                if bot._last_user and bot._last_channel:
+                    for seq, m in enumerate(messages):
+                        content = m.get("content", "")
+                        if not content.startswith("（"):
+                            time.sleep(min(len(content) * 0.06, 3.0))
+                        bot.reply(bot._last_channel, "", content, bot._last_event_type, seq + 1)
+            bot._active_messenger = ActiveMessenger(active_engine, intensity, on_send=send_active)
+            bot._active_messenger.start()
+            logger.info(f"Active messenger started (intensity={intensity})")
+
 
 def _on_message(ws, message, bot):
     try:
@@ -160,6 +187,11 @@ def _on_message(ws, message, bot):
 
             if not text: return
             logger.info(f"QQ MSG[{event_type}]: {text[:50]}")
+
+            # 记录最近活跃用户用于主动消息
+            bot._last_user = user_id
+            bot._last_channel = channel_id
+            bot._last_event_type = event_type
 
             replies = bot.process_message(text, user_id)
             for seq, r in enumerate(replies):
