@@ -83,9 +83,19 @@ class PalEngine:
     def process(self, user_message: str, timestamp: str | None = None) -> list[dict]:
         """
         处理用户消息，返回需投递的消息列表
+        支持斜杠命令: /persona /memory /compact
         """
         if not user_message.strip():
             return []
+
+        # ── 斜杠命令 ──────────────────────────────
+        msg = user_message.strip()
+        if msg.startswith("/persona "):
+            return self._cmd_persona(msg[9:].strip())
+        if msg == "/memory":
+            return self._cmd_memory()
+        if msg == "/compact":
+            return self._cmd_compact(timestamp)
 
         self._message_queue = []
         self._scheduled_queue = []
@@ -348,6 +358,43 @@ class PalEngine:
         except Exception as e:
             logger.error(f"压缩失败: {e}")
             return False
+
+    def _cmd_persona(self, new_persona: str) -> list[dict]:
+        """替换当前 persona 内容"""
+        persona_path = Config.PROJECT_ROOT / "agent" / self.persona_name / "persona" / f"{self.persona_name}.md"
+        persona_path.parent.mkdir(parents=True, exist_ok=True)
+        persona_path.write_text(new_persona, encoding="utf-8")
+        logger.info(f"Persona updated: {self.persona_name} ({len(new_persona)} chars)")
+        return [{"type": "send", "content": f"角色描述已更新（{len(new_persona)} 字符）。"}]
+
+    def _cmd_memory(self) -> list[dict]:
+        """获取压缩记忆文本（不影响当前对话）"""
+        if not self.context.history:
+            return [{"type": "send", "content": "暂无对话历史可供压缩。"}]
+        # 构建压缩提示词，但不改变 context 状态
+        compression_prompt = self.prompt_builder.build_compression_prompt()
+        history_text = self.context.format_recent_history()
+        combined = compression_prompt + "\n\n# 当前对话内容\n\n" + history_text
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": combined}],
+                temperature=0.3, max_tokens=2048,
+            )
+            text = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            import re as _re
+            summary_match = _re.search(r"<summary>(.*?)</summary>", text, _re.DOTALL)
+            if summary_match:
+                return [{"type": "send", "content": summary_match.group(1).strip()}]
+            return [{"type": "send", "content": text[:4000]}]
+        except Exception as e:
+            return [{"type": "send", "content": f"压缩失败: {e}"}]
+
+    def _cmd_compact(self, timestamp: str | None = None) -> list[dict]:
+        """强制压缩当前对话记忆"""
+        system_prompt = self._build_prompt(" ", timestamp)
+        if self._do_compression(system_prompt):
+            return [{"type": "send", "content": "对话记忆已压缩。"}]
+        return [{"type": "send", "content": "压缩失败或上下文不足。"}]
 
     def _detect_tool_hints(self, user_message: str):
         """检测用户意图，动态注入工具示例（避免提示词膨胀）"""
